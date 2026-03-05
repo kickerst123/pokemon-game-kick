@@ -1,0 +1,267 @@
+pip install pygameimport pygame, random, json, os
+
+# -----------------------------
+# ----- GAME SETTINGS ----------
+# -----------------------------
+pygame.init()
+SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
+TILE_SIZE = 40
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Python Pokémon RPG")
+clock = pygame.time.Clock()
+
+# -----------------------------
+# ----- COLORS ----------------
+# -----------------------------
+WHITE = (255,255,255)
+BLACK = (0,0,0)
+GREEN = (50,200,50)
+BROWN = (139,69,19)
+BLUE = (50,50,200)
+RED = (200,50,50)
+GRAY = (150,150,150)
+YELLOW = (200,200,50)
+
+# -----------------------------
+# ----- WORLD SETUP -----------
+# -----------------------------
+WORLD_SIZE = 100
+VIEW = 5
+
+TILE_GRASS=0
+TILE_FOREST=1
+TILE_WATER=2
+TILE_CITY=3
+TILE_MART=4
+TILE_GYM=5
+TILE_NPC=6
+
+world = [[TILE_GRASS for x in range(WORLD_SIZE)] for y in range(WORLD_SIZE)]
+for y in range(WORLD_SIZE):
+    for x in range(WORLD_SIZE):
+        r=random.random()
+        if r<0.2: world[y][x]=TILE_FOREST
+        elif r<0.3: world[y][x]=TILE_WATER
+        elif r<0.35: world[y][x]=TILE_CITY
+        elif r<0.4: world[y][x]=TILE_NPC
+
+for _ in range(20):
+    x=random.randint(0,WORLD_SIZE-1)
+    y=random.randint(0,WORLD_SIZE-1)
+    world[y][x]=TILE_MART
+for _ in range(15):
+    x=random.randint(0,WORLD_SIZE-1)
+    y=random.randint(0,WORLD_SIZE-1)
+    world[y][x]=TILE_GYM
+
+# -----------------------------
+# ----- PLAYER ----------------
+# -----------------------------
+player_x = WORLD_SIZE//2
+player_y = WORLD_SIZE//2
+player_color = YELLOW
+inventory = {"pokeball":5,"coins":20}
+badges = 0
+
+# -----------------------------
+# ----- POKEMON ----------------
+# -----------------------------
+evolutions = {
+    "Charmander":("Charmeleon",16), "Charmeleon":("Charizard",36),
+    "Bulbasaur":("Ivysaur",16), "Ivysaur":("Venusaur",32),
+    "Squirtle":("Wartortle",16), "Wartortle":("Blastoise",36),
+    "Pidgey":("Pidgeotto",18), "Pidgeotto":("Pidgeot",36),
+    "Caterpie":("Metapod",7), "Metapod":("Butterfree",10)
+}
+
+class Pokemon:
+    def __init__(self,name,level=5,shiny=False):
+        self.name=name
+        self.level=level
+        self.xp=0
+        self.hp=20+level*5
+        self.attack=5+level*2
+        self.shiny=shiny
+    def display(self):
+        shiny_text="✨" if self.shiny else ""
+        return f"{shiny_text}{self.name} Lv{self.level} HP:{self.hp} XP:{self.xp}"
+    def gain_xp(self,amount):
+        self.xp+=amount
+        while self.xp>=self.level*10:
+            self.xp-=self.level*10
+            self.level_up()
+    def level_up(self):
+        self.level+=1
+        self.hp+=5
+        self.attack+=2
+        print(f"⭐ {self.name} leveled up to {self.level}")
+        self.check_evolution()
+    def check_evolution(self):
+        if self.name in evolutions:
+            evo_name, evo_level = evolutions[self.name]
+            if self.level>=evo_level:
+                print(f"✨ {self.name} is evolving!")
+                self.name=evo_name
+                print(f"🎉 It evolved into {self.name}")
+    def to_dict(self):
+        return {"name":self.name,"level":self.level,"xp":self.xp,"hp":self.hp,"attack":self.attack,"shiny":self.shiny}
+    @staticmethod
+    def from_dict(d):
+        p=Pokemon(d["name"],d["level"],d["shiny"])
+        p.xp=d["xp"]; p.hp=d["hp"]; p.attack=d["attack"]
+        return p
+
+# Starter Pokémon choice
+def choose_starter():
+    starters={"1":Pokemon("Charmander",5),"2":Pokemon("Bulbasaur",5),"3":Pokemon("Squirtle",5)}
+    print("Choose your starter Pokémon!")
+    print("1 🔥 Charmander  2 🌿 Bulbasaur  3 💧 Squirtle")
+    choice=""
+    while choice not in starters: choice=input("Enter 1,2,3: ")
+    print(f"You chose {starters[choice].name}!")
+    return starters[choice]
+
+team=[choose_starter()]
+
+# -----------------------------
+# ----- SAVE/LOAD -------------
+# -----------------------------
+SAVE_FILE="savegame.json"
+def save_game():
+    global player_x,player_y,inventory,badges,team,world
+    data={
+        "player_x":player_x,"player_y":player_y,
+        "inventory":inventory,"badges":badges,
+        "team":[p.to_dict() for p in team],"world":world
+    }
+    with open(SAVE_FILE,"w") as f: json.dump(data,f)
+    print("💾 Game saved!")
+
+def load_game():
+    global player_x,player_y,inventory,badges,team,world
+    if os.path.exists(SAVE_FILE):
+        with open(SAVE_FILE,"r") as f:
+            data=json.load(f)
+            player_x=data["player_x"]; player_y=data["player_y"]
+            inventory=data["inventory"]; badges=data["badges"]
+            team=[Pokemon.from_dict(p) for p in data["team"]]
+            world=data["world"]
+        print("📂 Game loaded!")
+
+# -----------------------------
+# ----- BATTLE ----------------
+# -----------------------------
+wild_names=["Pidgey","Rattata","Zubat","Oddish","Dratini","Pikachu"]
+def battle_menu(player,enemy):
+    while player.hp>0 and enemy.hp>0:
+        print("\nYour turn!")
+        print("1.Fight 2.Bag 3.Pokémon 4.Run")
+        choice=input("Choose: ")
+        if choice=="1":
+            dmg=player.attack+random.randint(-2,2)
+            enemy.hp-=dmg
+            print(f"{player.name} hits {enemy.name} for {dmg}")
+        elif choice=="2":
+            if inventory["pokeball"]>0:
+                inventory["pokeball"]-=1
+                if random.random()<0.5:
+                    print(f"You caught {enemy.name}!")
+                    team.append(enemy)
+                    return
+                else: print("Pokéball failed!")
+            else: print("No Pokéballs!")
+        elif choice=="3":
+            for idx,pkm in enumerate(team):
+                print(f"{idx+1}.{pkm.display()}")
+            switch=int(input("Switch to: "))-1
+            if 0<=switch<len(team):
+                player=team[switch]
+                print(f"You switched to {player.name}")
+        elif choice=="4":
+            if random.random()<0.5:
+                print("You ran away safely!"); return
+            else: print("Couldn't escape!")
+        if enemy.hp>0:
+            dmg=enemy.attack+random.randint(-2,2)
+            player.hp-=dmg
+            print(f"{enemy.name} hits {player.name} for {dmg}")
+    if player.hp<=0: print(f"{player.name} fainted!")
+    else: 
+        print(f"{enemy.name} fainted!")
+        player.gain_xp(15)
+
+def battle(npc_name="Trainer"):
+    enemy=Pokemon(random.choice(wild_names),level=random.randint(2,6),shiny=random.randint(1,200)==1)
+    print(f"\n⚔️ {npc_name} challenges you with {enemy.display()}!")
+    battle_menu(team[0],enemy)
+
+# -----------------------------
+# ----- POKEMART / GYM -------
+# -----------------------------
+def pokemart():
+    global inventory
+    print("\n🏪 PokéMart")
+    print("Coins:",inventory["coins"],"Pokéballs:",inventory["pokeball"])
+    if inventory["coins"]>=5:
+        buy=input("Buy Pokéball for 5 coins? (y/n) ")
+        if buy=="y": inventory["coins"]-=5; inventory["pokeball"]+=1; print("You bought a Pokéball!")
+
+def gym():
+    global badges
+    print("\n🏟 Gym Battle!")
+    if random.random()<0.5: print("You won!"); badges+=1
+    else: print("You lost!")
+
+# -----------------------------
+# ----- DRAW MAP ---------------
+# -----------------------------
+def draw_map():
+    for y in range(player_y-VIEW,player_y+VIEW+1):
+        for x in range(player_x-VIEW,player_x+VIEW+1):
+            rect=pygame.Rect((x-(player_x-VIEW))*TILE_SIZE,(y-(player_y-VIEW))*TILE_SIZE,TILE_SIZE,TILE_SIZE)
+            if 0<=x<WORLD_SIZE and 0<=y<WORLD_SIZE:
+                tile=world[y][x]; color=BLACK
+                if tile==TILE_GRASS: color=GREEN
+                elif tile==TILE_FOREST: color=BROWN
+                elif tile==TILE_WATER: color=BLUE
+                elif tile==TILE_CITY: color=WHITE
+                elif tile==TILE_MART: color=GRAY
+                elif tile==TILE_GYM: color=RED
+                elif tile==TILE_NPC: color=RED
+                pygame.draw.rect(screen,color,rect)
+    pygame.draw.rect(screen,YELLOW,(VIEW*TILE_SIZE,VIEW*TILE_SIZE,TILE_SIZE,TILE_SIZE))
+
+# -----------------------------
+# ----- EXPLORE TILE ----------
+# -----------------------------
+def explore(tile):
+    if tile in [TILE_GRASS,TILE_FOREST]: 
+        if random.random()<0.3: battle("Wild Pokémon")
+    elif tile==TILE_MART: pokemart()
+    elif tile==TILE_GYM: gym()
+    elif tile==TILE_NPC: battle("Trainer"); world[player_y][player_x]=TILE_GRASS
+
+# -----------------------------
+# ----- MAIN LOOP --------------
+# -----------------------------
+load_game()
+running=True
+while running:
+    screen.fill(BLACK)
+    draw_map()
+    pygame.display.flip()
+    for event in pygame.event.get():
+        if event.type==pygame.QUIT: save_game(); running=False
+        elif event.type==pygame.KEYDOWN:
+            new_x,new_y=player_x,player_y
+            if event.key==pygame.K_w: new_y-=1
+            elif event.key==pygame.K_s: new_y+=1
+            elif event.key==pygame.K_a: new_x-=1
+            elif event.key==pygame.K_d: new_x+=1
+            elif event.key==pygame.K_F5: save_game()
+            elif event.key==pygame.K_F9: load_game()
+            if 0<=new_x<WORLD_SIZE and 0<=new_y<WORLD_SIZE:
+                player_x=new_x; player_y=new_y
+                explore(world[player_y][player_x])
+    clock.tick(10)
+pygame.quit()
